@@ -5,7 +5,8 @@ from app.ui.components.colors import (
 
 
 def create_bubble(text: str, is_me: bool, is_file: bool = False,
-                  time_str: str = "", max_width: float = 450):
+                  time_str: str = "", max_width: float = 450,
+                  on_file_click=None):
     """WeShare-style chat bubble with tail on the sender's side."""
     bg = BG_SENT if is_me else BG_RECEIVED
     align = ft.MainAxisAlignment.END if is_me else ft.MainAxisAlignment.START
@@ -17,10 +18,15 @@ def create_bubble(text: str, is_me: bool, is_file: bool = False,
 
     widgets = []
     if is_file:
-        widgets.append(ft.Row([
+        file_row = ft.Row([
             ft.Icon(ft.Icons.INSERT_DRIVE_FILE, color=GREEN_ACCENT, size=20),
             ft.Text(text, color=TEXT_PRIMARY, size=14, italic=True, expand=True),
-        ], spacing=8))
+        ], spacing=8)
+        
+        widgets.append(
+            ft.Container(content=file_row, on_click=lambda e: on_file_click(text) if on_file_click else None,
+                         ink=True, padding=ft.Padding.all(4), border_radius=6)
+        )
     else:
         widgets.append(ft.Text(text, color=TEXT_PRIMARY, size=14))
 

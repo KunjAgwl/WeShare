@@ -50,27 +50,33 @@ def login_page(page: ft.Page, db, on_login_success):
             page.update()
             return
 
-        if mode[0] == 0:  # Login
-            result = await db.login_user(u, p)
-            if result:
-                on_login_success(result[0], result[1])
-            else:
-                error_text.value = "Invalid username or password"
-                page.update()
-        else:  # Register
-            d = display_field.value.strip()
-            if not d:
-                error_text.value = "Please enter a display name"
-                page.update()
-                return
-            ok = await db.register_user(u, p, d)
-            if ok:
-                on_login_success(u, d)
-            else:
-                error_text.value = "Username already taken"
-                page.update()
+        try:
+            if mode[0] == 0:  # Login
+                result = await db.login_user(u, p)
+                if result:
+                    on_login_success(result[0], result[1])
+                else:
+                    error_text.value = "Invalid username or password"
+                    page.update()
+            else:  # Register
+                d = display_field.value.strip()
+                if not d:
+                    error_text.value = "Please enter a display name"
+                    page.update()
+                    return
+                ok = await db.register_user(u, p, d)
+                if ok:
+                    on_login_success(u, d)
+                else:
+                    error_text.value = "Username already taken"
+                    page.update()
+        except Exception as e:
+            error_text.value = f"Connection error: {e}"
+            page.update()
 
     def _handle_action(e, loop):
+        error_text.value = "Connecting..."
+        page.update()
         asyncio.run_coroutine_threadsafe(_do_action(), loop)
 
     def build(loop):

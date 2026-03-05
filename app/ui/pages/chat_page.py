@@ -96,17 +96,32 @@ def chat_page(page: ft.Page, db, username: str, display_name: str,
         page.update()
         if not fpath or not active_chat[0]:
             return
+        
         target = active_chat[0]
+        fname = os.path.basename(fpath)
         info = discovered.get(target, {})
+        
+        # Instantly update local UI
+        messages.setdefault(target, []).append({
+            "text": f"📎 {fname}", 
+            "is_me": True, 
+            "is_file": True, 
+            "time": _now()
+        })
+        _refresh_msg_view(scroll=True)
+        
+        # If on LAN, send via local P2P HTTP server
         if "ip" in info:
             def xfer():
                 if file_client.send_file(info["ip"], 5001, fpath):
+                    # Record the file transfer in the DB to sync it
                     asyncio.run_coroutine_threadsafe(
-                        db.send_message(username, target, f"📎 {os.path.basename(fpath)}", is_file=True), loop)
+                        db.send_message(username, target, f"📎 {fname}", is_file=True), loop)
             threading.Thread(target=xfer, daemon=True).start()
         else:
+            # If not on LAN, currently we just record a placeholder in DB
             asyncio.run_coroutine_threadsafe(
-                db.send_message(username, target, f"📎 {os.path.basename(fpath)}", is_file=True), loop)
+                db.send_message(username, target, f"📎 {fname}", is_file=True), loop)
 
     file_dlg = ft.AlertDialog(
         title=ft.Text("Send a file"),
@@ -122,6 +137,8 @@ def chat_page(page: ft.Page, db, username: str, display_name: str,
         page.update()
 
     def _open_file(e):
+        if not active_chat[0]:
+            return
         file_field.value = ""
         file_dlg.open = True
         page.overlay.append(file_dlg)
@@ -138,15 +155,47 @@ def chat_page(page: ft.Page, db, username: str, display_name: str,
             )
         page.update()
 
-    def _refresh_msg_view():
+    def _handle_file_click(text):
+        # text is like "📎 filename.ext"
+        fname = text.replace("📎 ", "")
+        import os
+        import platform
+        import subprocess
+
+        # Priority 1: Check if File exists in uploads dir (if received)
+        path = os.path.join(os.getcwd(), "uploads", fname)
+        # Priority 2: In case it's a file sent by me, the text might be the name.
+        # But we only track name in DB, so we can't reliably open sent files if they moved,
+        # but received files will be in uploads/.
+        
+        if not os.path.exists(path):
+            page.snack_bar = ft.SnackBar(ft.Text(f"File not found locally: {fname}"))
+            page.snack_bar.open = True
+            page.update()
+            return
+
+        try:
+            if platform.system() == "Windows":
+                os.startfile(path)
+            elif platform.system() == "Darwin":
+                subprocess.call(["open", path])
+            else:
+                subprocess.call(["xdg-open", path])
+        except Exception as e:
+            logger.error(f"Failed to open file: {e}")
+
+    def _refresh_msg_view(scroll=False):
         message_col.controls.clear()
         t = active_chat[0]
         if t and t in messages:
             for m in messages[t]:
                 message_col.controls.append(
                     create_bubble(m["text"], m.get("is_me", False),
-                                  m.get("is_file", False), m.get("time", "")))
+                                  m.get("is_file", False), m.get("time", ""),
+                                  on_file_click=_handle_file_click))
         page.update()
+        if scroll and message_col.controls:
+            message_col.scroll_to(offset=-1, duration=100)
 
     def _select_chat(name):
         active_chat[0] = name
@@ -161,18 +210,32 @@ def chat_page(page: ft.Page, db, username: str, display_name: str,
         page.update()
 
     def _send_click(e):
-        asyncio.run_coroutine_threadsafe(_send_msg(), loop)
-
-    async def _send_msg():
         t = active_chat[0]
-        if not t or not msg_input.value:
+        text = msg_input.value.strip()
+        if not t or not text:
             return
-        text = msg_input.value
+        # Instantly update local UI
+        messages.setdefault(t, []).append({
+            "text": text, 
+            "is_me": True, 
+            "is_file": False, 
+            "time": _now()
+        })
+        _refresh_msg_view(scroll=True)
+        
+        # Clear input on UI thread
         msg_input.value = ""
+        msg_input.focus()
         page.update()
-        messages.setdefault(t, []).append({"text": text, "is_me": True, "time": _now()})
-        _refresh_msg_view()
-        await db.send_message(username, t, text)
+
+        async def _do_send():
+            try:
+                await db.send_message(username, t, text)
+            except Exception as ex:
+                logger.error(f"Send Error: {ex}")
+                
+        # Run DB save in background without blocking UI
+        asyncio.run_coroutine_threadsafe(_do_send(), loop)
 
     async def _refresh_contacts():
         rows = await db.get_contacts(username)
@@ -194,9 +257,11 @@ def chat_page(page: ft.Page, db, username: str, display_name: str,
                     new = [{"text": r[1], "is_me": r[0] == username,
                             "is_file": bool(r[2]),
                             "time": str(r[3])[-8:-3] if r[3] else ""} for r in rows]
+                    
+                    old_len = len(messages.get(t) or [])
                     if messages.get(t) != new:
                         messages[t] = new
-                        _refresh_msg_view()
+                        _refresh_msg_view(scroll=(len(new) > old_len))
             except Exception as ex:
                 logger.error(f"Sync: {ex}")
             await asyncio.sleep(1)
