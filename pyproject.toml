@@ -1,0 +1,16 @@
+[project]
+name = "myapp"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "flet[all]>=0.82.0",
+    "zeroconf>=0.148.0",
+    "flask>=3.0.0",
+    "requests>=2.31.0",
+    "libsql-client>=0.3.0",
+    "python-dotenv>=1.0.0",
+    "qrcode[pil]>=7.4",
+    "Pillow>=10.0",
+]
