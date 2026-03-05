@@ -61,7 +61,7 @@ def chat_page(page: ft.Page, db, username: str, display_name: str,
             add_dialog.open = False
             add_error.value = ""
             await _refresh_contacts()
-            _select_chat(target)
+            page.update()
         else:
             add_error.value = "User not found"
             page.update()
@@ -138,7 +138,7 @@ def chat_page(page: ft.Page, db, username: str, display_name: str,
             )
         page.update()
 
-    def _refresh_msg_view(scroll=False):
+    def _refresh_msg_view():
         message_col.controls.clear()
         t = active_chat[0]
         if t and t in messages:
@@ -147,8 +147,6 @@ def chat_page(page: ft.Page, db, username: str, display_name: str,
                     create_bubble(m["text"], m.get("is_me", False),
                                   m.get("is_file", False), m.get("time", "")))
         page.update()
-        if scroll and message_col.controls:
-            message_col.scroll_to(offset=-1, duration=100)
 
     def _select_chat(name):
         active_chat[0] = name
@@ -163,16 +161,18 @@ def chat_page(page: ft.Page, db, username: str, display_name: str,
         page.update()
 
     def _send_click(e):
+        asyncio.run_coroutine_threadsafe(_send_msg(), loop)
+
+    async def _send_msg():
         t = active_chat[0]
-        text = msg_input.value.strip()
-        if not t or not text:
+        if not t or not msg_input.value:
             return
+        text = msg_input.value
         msg_input.value = ""
-        # Update local UI instantly
+        page.update()
         messages.setdefault(t, []).append({"text": text, "is_me": True, "time": _now()})
-        _refresh_msg_view(scroll=True)
-        # Dispatch to DB in background
-        asyncio.run_coroutine_threadsafe(db.send_message(username, t, text), loop)
+        _refresh_msg_view()
+        await db.send_message(username, t, text)
 
     async def _refresh_contacts():
         rows = await db.get_contacts(username)
@@ -194,11 +194,9 @@ def chat_page(page: ft.Page, db, username: str, display_name: str,
                     new = [{"text": r[1], "is_me": r[0] == username,
                             "is_file": bool(r[2]),
                             "time": str(r[3])[-8:-3] if r[3] else ""} for r in rows]
-                    
-                    old_len = len(messages.get(t) or [])
                     if messages.get(t) != new:
                         messages[t] = new
-                        _refresh_msg_view(scroll=(len(new) > old_len))
+                        _refresh_msg_view()
             except Exception as ex:
                 logger.error(f"Sync: {ex}")
             await asyncio.sleep(1)
