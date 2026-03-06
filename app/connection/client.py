@@ -26,6 +26,29 @@ class LocalClient:
             logger.error(f"Error sending file: {e}")
             return False
 
+    def send_file_with_progress(self, ip, port, file_path, progress_callback):
+        from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
+        url = f"http://{ip}:{port}/upload"
+        try:
+            filename = os.path.basename(file_path)
+            
+            with open(file_path, "rb") as f:
+                encoder = MultipartEncoder(
+                    fields={'file': (filename, f, 'application/octet-stream')}
+                )
+                monitor = MultipartEncoderMonitor(encoder, progress_callback)
+                response = requests.post(url, data=monitor, headers={'Content-Type': monitor.content_type})
+                
+            if response.status_code == 200:
+                logger.info(f"File sent successfully to {ip}:{port}")
+                return True
+            else:
+                logger.error(f"Failed to send file: {response.text}")
+                return False
+        except Exception as e:
+            logger.error(f"Error sending file: {e}")
+            return False
+
     def download_file(self, ip, port, filename, save_dir):
         url = f"http://{ip}:{port}/download/{filename}"
         try:

@@ -25,6 +25,7 @@ def chat_page(page: ft.Page, db, username: str, display_name: str,
     discovered = {}       # name → {ip,port} | {type:"cloud"}
     active_chat = [None]
     messages = {}         # contact → [{text, is_me, is_file, time}]
+    pending_uploads = {}  # contact → [{text, is_me, is_file, time, progress_ref}]
     file_server = LocalFileServer(port=5001)
     file_client = LocalClient()
 
@@ -101,25 +102,48 @@ def chat_page(page: ft.Page, db, username: str, display_name: str,
         fname = os.path.basename(fpath)
         info = discovered.get(target, {})
         
-        # Instantly update local UI
-        messages.setdefault(target, []).append({
+        # Use pending_uploads to avoid being erased by background sync
+        prog_ref = ft.Ref[ft.ProgressBar]()
+        pending_msg = {
             "text": f"📎 {fname}", 
             "is_me": True, 
             "is_file": True, 
-            "time": _now()
-        })
+            "time": _now(),
+            "progress_ref": prog_ref
+        }
+        pending_uploads.setdefault(target, []).append(pending_msg)
         _refresh_msg_view(scroll=True)
         
-        # If on LAN, send via local P2P HTTP server
+        # If on LAN, send via local P2P HTTP server using chunked progress
         if "ip" in info:
             def xfer():
-                if file_client.send_file(info["ip"], 5001, fpath):
+                def on_progress(monitor):
+                    if prog_ref.current:
+                        prog_ref.current.value = monitor.bytes_read / monitor.len
+                        prog_ref.current.update()
+                        
+                success = file_client.send_file_with_progress(info["ip"], 5001, fpath, on_progress)
+                
+                # Once done, remove from pending UI list
+                if pending_msg in pending_uploads.get(target, []):
+                    pending_uploads[target].remove(pending_msg)
+                
+                if success:
                     # Record the file transfer in the DB to sync it
                     asyncio.run_coroutine_threadsafe(
                         db.send_message(username, target, f"📎 {fname}", is_file=True), loop)
+                else:
+                    page.snack_bar = ft.SnackBar(ft.Text("Failed to send file"))
+                    page.snack_bar.open = True
+                    # Let _refresh_msg_view remove the failed upload
+                    
+                _refresh_msg_view(scroll=True)
+                    
             threading.Thread(target=xfer, daemon=True).start()
         else:
             # If not on LAN, currently we just record a placeholder in DB
+            if pending_msg in pending_uploads.get(target, []):
+                pending_uploads[target].remove(pending_msg)
             asyncio.run_coroutine_threadsafe(
                 db.send_message(username, target, f"📎 {fname}", is_file=True), loop)
 
@@ -187,15 +211,27 @@ def chat_page(page: ft.Page, db, username: str, display_name: str,
     def _refresh_msg_view(scroll=False):
         message_col.controls.clear()
         t = active_chat[0]
+        
+        all_msgs = []
         if t and t in messages:
-            for m in messages[t]:
-                message_col.controls.append(
-                    create_bubble(m["text"], m.get("is_me", False),
-                                  m.get("is_file", False), m.get("time", ""),
-                                  on_file_click=_handle_file_click))
-        page.update()
-        if scroll and message_col.controls:
-            message_col.scroll_to(offset=-1, duration=100)
+            all_msgs.extend(messages[t])
+        if t and t in pending_uploads:
+            all_msgs.extend(pending_uploads[t])
+            
+        for m in all_msgs:
+            message_col.controls.append(
+                create_bubble(m["text"], m.get("is_me", False),
+                              m.get("is_file", False), m.get("time", ""),
+                              on_file_click=_handle_file_click,
+                              progress_ref=m.get("progress_ref")))
+        # Do not use page.update() directly from thread if possible, but Flet mostly allows it
+        # Actually message_col is in the tree, we can just update it
+        try:
+            page.update()
+            if scroll and message_col.controls:
+                message_col.scroll_to(offset=-1, duration=100)
+        except Exception:
+            pass
 
     def _select_chat(name):
         active_chat[0] = name

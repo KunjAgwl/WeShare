@@ -6,7 +6,8 @@ from app.ui.components.colors import (
 
 def create_bubble(text: str, is_me: bool, is_file: bool = False,
                   time_str: str = "", max_width: float = 450,
-                  on_file_click=None):
+                  on_file_click=None,
+                  progress_ref: ft.Ref = None):
     """WeShare-style chat bubble with tail on the sender's side."""
     bg = BG_SENT if is_me else BG_RECEIVED
     align = ft.MainAxisAlignment.END if is_me else ft.MainAxisAlignment.START
@@ -27,6 +28,12 @@ def create_bubble(text: str, is_me: bool, is_file: bool = False,
             ft.Container(content=file_row, on_click=lambda e: on_file_click(text) if on_file_click else None,
                          ink=True, padding=ft.Padding.all(4), border_radius=6)
         )
+        
+        if progress_ref is not None:
+            widgets.append(
+                ft.ProgressBar(ref=progress_ref, width=max_width - 40, 
+                               color=GREEN_ACCENT, bgcolor=BG_RECEIVED, value=0.0)
+            )
     else:
         widgets.append(ft.Text(text, color=TEXT_PRIMARY, size=14))
 
