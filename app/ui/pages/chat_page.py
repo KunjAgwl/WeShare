@@ -264,7 +264,7 @@ def chat_page(page: ft.Page, db, username: str, display_name: str,
                         _refresh_msg_view(scroll=(len(new) > old_len))
             except Exception as ex:
                 logger.error(f"Sync: {ex}")
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5)
 
     # ── Discovery ──
     def on_found(name, ip, port):
