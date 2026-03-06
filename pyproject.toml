@@ -13,4 +13,5 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "qrcode[pil]>=7.4",
     "Pillow>=10.0",
+    "requests-toolbelt>=1.0.0",
 ]
